@@ -1,37 +1,70 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
-func walkFunc(path string, fi os.FileInfo, err error) error {
+const (
+	current = "."
+	parent  = ".."
+)
+
+type skip struct {
+	message string // skip message
+	code    int    // staus code
+	cause   error  // the original error object
+	end     bool   // the end of scanning
+}
+
+func (r skip) Error() string {
+	return r.message
+}
+
+func walk(path string, fi os.FileInfo, err error) error {
 	if !fi.IsDir() {
 		return filepath.SkipDir
 	}
+
+	// About skipping in a special case
 	switch filepath.Base(fi.Name()) {
 	case ".":
-		return filepath.SkipDir
+		return skip{
+			message: "dot dir (.) should be skipped",
+			code:    0,
+			cause:   filepath.SkipDir,
+			end:     false,
+		}
 	case ".git":
-		return errors.New("end")
+		return skip{
+			message: ".git directory was found",
+			code:    0,
+			cause:   nil,
+			end:     true, // stop scanning
+		}
 	}
 
-	if filepath.Base(fi.Name()) == ".git" {
-		return errors.New("end")
-	}
-	fmt.Println(path)
+	// TODO: scan through the directory where the .git directory is located (means the top directory)
+
+	fmt.Println(filepath.Clean(path))
 	return nil
 }
 
 func main() {
-	root := "."
+	cwd := current
 	for {
-		err := filepath.Walk(root, walkFunc)
+		err := filepath.Walk(cwd, walk)
 		if err != nil {
-			os.Exit(1)
+			switch err := err.(type) {
+			case skip:
+				if err.end {
+					os.Exit(err.code)
+				}
+			default:
+				panic(err)
+			}
 		}
-		root = filepath.Join(root, "..")
+		cwd = filepath.Join(cwd, parent)
 	}
 }
